@@ -22,5 +22,50 @@
 - Spring Boot 9000 포트 실행
 - 외부 접속 성공
 
-## 다음 할 일
-- Spring Boot Docker 컨테이너화g
+## Day 2 - Spring Boot Docker 컨테이너화
+
+### 오늘 한 것
+- 프로젝트 루트에 `Dockerfile` 생성
+- Java 21 JRE 기반 Docker 이미지 구성
+- Spring Boot JAR 파일을 Docker 이미지에 포함
+- `ai-business-system` Docker 이미지 빌드 성공
+- Docker 컨테이너 `ai-business` 생성 및 실행
+- Ubuntu 9000 포트와 컨테이너 9000 포트 연결
+- `/api/hello` 호출 정상 동작 확인
+- `docker stop`, `docker start`로 컨테이너 중지/재실행 확인
+
+### 오늘 사용한 주요 명령어
+
+```bash
+./gradlew build
+
+docker build -t ai-business-system .
+
+docker images
+
+docker run -d --name ai-business -p 9000:9000 ai-business-system
+
+docker ps
+
+curl http://localhost:9000/api/hello
+
+docker stop ai-business
+
+docker start ai-business
+```
+### 오늘 이해한 개념
+
+- Dockerfile = Docker 이미지를 만드는 설명서
+- Image = 애플리케이션과 실행 환경을 포장한 결과물
+- Container = Image를 실제 실행한 것
+- `-p 9000:9000` = Ubuntu 9000 포트와 컨테이너 9000 포트를 연결
+- Docker 이미지에 Java를 포함할 수 있으므로 운영 서버에 Java를 직접 설치할 필요는 없음
+- 현재는 `./gradlew build`를 Docker 밖에서 하기 때문에 Ubuntu에 Java가 필요함
+- 추후 Multi-stage Build를 사용하면 빌드까지 Docker 안에서 처리 가능
+
+### 다음 할 일
+
+- Docker Multi-stage Build 적용
+- PostgreSQL Docker 컨테이너 구성
+- Spring Boot와 PostgreSQL 연결
+- Docker Compose 기초
