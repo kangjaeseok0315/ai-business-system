@@ -1,5 +1,14 @@
 spring:
   application:
     name: backend
+  datasource:
+    url: jdbc:postgresql://192.168.50.123:5432/ai_business
+    username: aiuser
+    password: aipass
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
 server:
   port: 9000

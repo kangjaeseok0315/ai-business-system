@@ -203,3 +203,285 @@ Ubuntu
 - Spring Boot와 PostgreSQL Container 연결
 - 간단한 테이블을 만들고 실제 데이터 저장/조회
 - 이후 Docker Compose로 Spring Boot + PostgreSQL 통합 관리
+
+````markdown
+## Day 4 - PostgreSQL 연동 및 Customer API 구현
+
+### 오늘 한 것
+
+- PostgreSQL 17 Docker 이미지 다운로드
+- `ai-postgres` PostgreSQL 컨테이너 생성 및 실행
+- PostgreSQL 초기 설정
+  - Database: `ai_business`
+  - User: `aiuser`
+- PostgreSQL 컨테이너에 직접 접속하여 SQL 실행 확인
+- Docker Network `ai-network` 생성
+- `ai-postgres` 컨테이너를 `ai-network`에 연결
+- Spring Boot에 Spring Data JPA 의존성 추가
+- Spring Boot에 PostgreSQL JDBC Driver 추가
+- `application.yaml`에 PostgreSQL 연결 정보 설정
+- Windows IntelliJ에서 Ubuntu의 PostgreSQL 컨테이너 연결 성공
+- `Customer` Entity 생성
+- Hibernate를 통해 `customer` 테이블 자동 생성 확인
+- `CustomerRepository` 생성
+- 고객 등록 API 구현
+  - `POST /api/customers`
+- 고객 전체 조회 API 구현
+  - `GET /api/customers`
+- 고객 단건 조회 API 구현
+  - `GET /api/customers/{id}`
+- IntelliJ HTTP Client를 이용한 API 테스트
+- PostgreSQL에서 실제 데이터 저장 확인
+
+### 주요 명령어
+
+PostgreSQL 이미지 다운로드
+
+```bash
+docker pull postgres:17
+````
+
+PostgreSQL 컨테이너 생성 및 실행
+
+```bash
+docker run -d \
+  --name ai-postgres \
+  -e POSTGRES_DB=ai_business \
+  -e POSTGRES_USER=aiuser \
+  -e POSTGRES_PASSWORD=aipass \
+  -p 5432:5432 \
+  postgres:17
+```
+
+실행 중인 컨테이너 확인
+
+```bash
+docker ps
+```
+
+PostgreSQL 접속
+
+```bash
+docker exec -it ai-postgres psql -U aiuser -d ai_business
+```
+
+현재 Database와 User 확인
+
+```sql
+SELECT current_database(), current_user;
+```
+
+테이블 목록 확인
+
+```sql
+\dt
+```
+
+`customer` 테이블 구조 확인
+
+```sql
+\d customer
+```
+
+`customer` 데이터 확인
+
+```sql
+SELECT * FROM customer;
+```
+
+PostgreSQL 종료
+
+```text
+\q
+```
+
+Docker Network 생성
+
+```bash
+docker network create ai-network
+```
+
+Docker Network 확인
+
+```bash
+docker network ls
+```
+
+PostgreSQL 컨테이너를 Docker Network에 연결
+
+```bash
+docker network connect ai-network ai-postgres
+```
+
+### Spring Boot DB 의존성
+
+`build.gradle`
+
+```gradle
+implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+runtimeOnly 'org.postgresql:postgresql'
+```
+
+### PostgreSQL 연결 설정
+
+Docker 컨테이너 간 통신 시:
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://ai-postgres:5432/ai_business
+    username: aiuser
+    password: aipass
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+```
+
+Windows IntelliJ에서 Ubuntu PostgreSQL에 직접 접속하여 테스트할 때는
+`ai-postgres` 대신 Ubuntu 서버 IP를 사용한다.
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://192.168.50.123:5432/ai_business
+    username: aiuser
+    password: aipass
+```
+
+### Customer Entity
+
+```java
+@Entity
+@Getter
+@Setter
+@NoArgsConstructor
+public class Customer {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+
+    private String email;
+}
+```
+
+### Customer Repository
+
+```java
+public interface CustomerRepository extends JpaRepository<Customer, Long> {
+}
+```
+
+### Customer Controller
+
+```java
+@RestController
+@RequestMapping("/api/customers")
+public class CustomerController {
+
+    private final CustomerRepository customerRepository;
+
+    public CustomerController(CustomerRepository customerRepository) {
+        this.customerRepository = customerRepository;
+    }
+
+    @PostMapping
+    public Customer create(@RequestBody Customer customer) {
+        return customerRepository.save(customer);
+    }
+
+    @GetMapping
+    public List<Customer> findAll() {
+        return customerRepository.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public Customer findOne(@PathVariable Long id) {
+        return customerRepository.findById(id)
+                .orElseThrow();
+    }
+}
+```
+
+### API 테스트
+
+고객 등록
+
+```http
+POST http://localhost:9000/api/customers
+Content-Type: application/json
+
+{
+  "name": "홍길동",
+  "email": "hong@test.com"
+}
+```
+
+고객 전체 조회
+
+```http
+GET http://localhost:9000/api/customers
+```
+
+고객 단건 조회
+
+```http
+GET http://localhost:9000/api/customers/1
+```
+
+### 오늘 이해한 개념
+
+* PostgreSQL도 Docker Image를 이용해 Container로 실행할 수 있다.
+* `docker run -e` 옵션으로 Container에 환경변수를 전달할 수 있다.
+* PostgreSQL Docker Image는 `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` 환경변수를 이용해 초기 DB와 사용자를 생성한다.
+* Docker Container끼리 통신하려면 같은 Docker Network에 연결할 수 있다.
+* 같은 Docker Network에서는 Container 이름을 호스트명처럼 사용할 수 있다.
+* 따라서 Spring Boot Container에서는 PostgreSQL을 `ai-postgres:5432`로 찾을 수 있다.
+* Windows에서 실행되는 Spring Boot는 Docker Network의 `ai-postgres`라는 이름을 알 수 없으므로 Ubuntu 서버 IP를 이용해 접속한다.
+* JDBC Driver는 Java와 PostgreSQL이 통신할 수 있도록 해준다.
+* JPA는 Java 객체와 DB 테이블을 연결해서 다룰 수 있도록 해준다.
+* Hibernate는 JPA 구현체로서 실제 SQL 생성 및 DB 작업을 수행한다.
+* `@Entity`가 붙은 Java 클래스는 DB 테이블과 매핑할 수 있다.
+* `spring.jpa.hibernate.ddl-auto=update` 설정을 통해 Entity를 기반으로 테이블을 자동 생성/변경할 수 있다.
+* `JpaRepository`를 상속하면 기본적인 CRUD 기능을 사용할 수 있다.
+* `save()`는 데이터를 저장한다.
+* `findAll()`은 여러 데이터를 `List<Customer>` 형태로 조회한다.
+* `findById()`는 데이터가 존재하지 않을 수도 있기 때문에 `Optional<Customer>`를 반환한다.
+* `@PathVariable`을 이용하면 URL에 포함된 값을 Controller의 파라미터로 받을 수 있다.
+* Spring Boot는 Java 객체와 `List<Customer>`를 JSON 응답으로 자동 변환한다.
+* `@RequestBody`를 이용하면 요청으로 들어온 JSON을 Java 객체로 변환할 수 있다.
+* `@GeneratedValue(strategy = GenerationType.IDENTITY)`를 사용하면 PostgreSQL이 PK 값을 자동 생성한다.
+
+### 현재 데이터 흐름
+
+```text
+HTTP Request
+     ↓
+CustomerController
+     ↓
+CustomerRepository
+     ↓
+JPA / Hibernate
+     ↓
+PostgreSQL JDBC Driver
+     ↓
+PostgreSQL
+     ↓
+customer Table
+```
+
+### 다음 할 일
+
+* Customer 수정 API 구현 (`PUT`)
+* Customer 삭제 API 구현 (`DELETE`)
+* Customer CRUD 완성
+* Spring Boot Container를 `ai-network`에 연결
+* Spring Boot Container와 PostgreSQL Container 간 실제 통신 확인
+* DB 접속 정보를 환경변수로 분리
+* Docker Compose 기초
+* Docker Compose로 Spring Boot + PostgreSQL 통합 실행
+
