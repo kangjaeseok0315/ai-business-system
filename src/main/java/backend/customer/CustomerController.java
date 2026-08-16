@@ -30,4 +30,18 @@ public class CustomerController {
         return customerRepository.findById(id).orElseThrow();
     }
 
+    @PutMapping("/{id}")
+    public Customer update(@PathVariable Long id, @RequestBody Customer request){
+        Customer customer = customerRepository.findById(id).orElseThrow();
+        customer.setName(request.getName());
+        customer.setEmail(request.getEmail());
+        return customerRepository.save(customer);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id){
+        customerRepository.deleteById(id);
+    }
+
+
 }
