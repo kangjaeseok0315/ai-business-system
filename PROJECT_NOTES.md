@@ -485,3 +485,564 @@ customer Table
 * Docker Compose 기초
 * Docker Compose로 Spring Boot + PostgreSQL 통합 실행
 
+좋습니다. 오늘은 **Day 5로 정리**하면 되겠습니다. 기존에 정한 `오늘 한 것 → 주요 명령어 → 오늘 이해한 개념 → 다음 할 일` 형식 그대로, `PROJECT_NOTES.md`에 바로 복붙할 수 있게 드리겠습니다.
+
+````markdown
+## Day 5 - Customer CRUD 완성 및 Docker Compose 구성
+
+### 오늘 한 것
+
+- 기존 학습 내용 간단히 복습
+  - Docker Image와 Container의 관계 복습
+  - Docker Network의 역할 복습
+  - JPA Entity와 PostgreSQL 테이블의 관계 복습
+
+- Customer 수정 API 구현
+  - `PUT /api/customers/{id}`
+  - `findById()`로 기존 Customer 조회
+  - 요청 Body의 name, email 값으로 기존 Customer 수정
+  - `save()`를 이용해 UPDATE 처리
+  - HTTP Client를 이용해 수정 정상 동작 확인
+
+- Customer 삭제 API 구현
+  - `DELETE /api/customers/{id}`
+  - `deleteById()`를 이용해 Customer 삭제
+  - Customer CRUD 완성
+
+- Spring Boot 컨테이너와 PostgreSQL 컨테이너 연결
+  - `ai-business`와 `ai-postgres`를 같은 Docker Network에서 통신하도록 구성
+  - Spring Boot에서 컨테이너 이름 `ai-postgres`를 DB Host로 사용
+  - `/api/customers` 호출을 통해 DB 연결 정상 동작 확인
+
+- Docker Compose 학습 및 구성
+  - 프로젝트 루트에 `docker-compose.yml` 생성
+  - PostgreSQL 서비스를 `ai-postgres`로 정의
+  - Spring Boot 서비스를 `ai-business`로 정의
+  - PostgreSQL 환경변수 설정
+  - Spring Boot 이미지를 Dockerfile을 이용해 자동 Build하도록 설정
+  - Spring Boot DB 접속 정보를 환경변수로 분리
+  - `depends_on`을 이용해 서비스 의존관계 설정
+  - Docker Compose 실행
+
+- Docker Compose 실행 중 문제 해결
+  - 기존 PostgreSQL 컨테이너가 Ubuntu 5432 포트를 사용하여 포트 충돌 발생
+  - 기존 수동 생성 컨테이너를 제거하여 포트 충돌 해결
+  - Spring Boot 컨테이너가 `Exited (1)` 상태로 종료되는 문제 확인
+  - `docker compose logs`를 이용해 원인 확인
+  - `UnknownHostException: ai-postgres` 확인
+  - `docker inspect`를 이용해 실제 Docker Network 연결 상태 확인
+  - PostgreSQL 컨테이너를 Compose 기본 Network에 연결
+  - `ai-postgres` Network Alias 설정
+  - Spring Boot 재시작 후 PostgreSQL 연결 성공
+  - `/api/customers` 호출 성공
+
+### 현재 docker-compose.yml
+
+```yaml
+services:
+
+  ai-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ai_business
+      POSTGRES_USER: aiuser
+      POSTGRES_PASSWORD: aipass
+    ports:
+      - "5432:5432"
+
+  ai-business:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      DB_URL: jdbc:postgresql://ai-postgres:5432/ai_business
+      DB_USERNAME: aiuser
+      DB_PASSWORD: aipass
+    depends_on:
+      - ai-postgres
+````
+
+### 현재 application.yaml
+
+```yaml
+spring:
+  application:
+    name: backend
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+server:
+  port: 9000
+```
+
+### 오늘 사용한 주요 명령어
+
+```bash
+# Docker 이미지 확인
+docker images
+
+# 실행 중인 컨테이너 확인
+docker ps
+
+# Docker Network 확인
+docker network ls
+
+# Docker Compose 실행
+docker compose up -d --build
+
+# Compose가 관리하는 컨테이너 확인
+docker compose ps
+
+# 종료된 컨테이너까지 확인
+docker compose ps -a
+
+# Spring Boot 로그 확인
+docker compose logs ai-business
+
+# 컨테이너 상세 정보 확인
+docker inspect ai-business-system-ai-postgres-1
+
+docker inspect ai-business-system-ai-business-1
+
+# PostgreSQL을 Compose Network에 연결
+docker network connect \
+  --alias ai-postgres \
+  ai-business-system_default \
+  ai-business-system-ai-postgres-1
+
+# Spring Boot 서비스 다시 시작
+docker compose start ai-business
+
+# API 동작 확인
+curl http://localhost:9000/api/customers
+```
+
+### 오늘 이해한 개념
+
+#### 1. Docker Image와 Container
+
+* Image는 애플리케이션과 실행 환경을 담은 실행 가능한 패키지
+* Container는 Image를 실제로 실행한 인스턴스
+* 하나의 Image로 여러 Container를 만들 수 있음
+* 새로운 Image를 Build해도 기존 Container가 자동으로 새로운 Image를 사용하는 것은 아님
+* 새로운 Image를 실제 서비스에 적용하려면 Container를 새 Image 기준으로 다시 생성해야 함
+
+#### 2. Docker Network
+
+Docker Container끼리 통신하려면 같은 Docker Network에 연결할 수 있다.
+
+같은 Network에 연결된 Container는 Container 또는 Service 이름을 이용해 서로를 찾을 수 있다.
+
+예:
+
+ai-business
+↓
+ai-postgres:5432
+↓
+Docker Network
+↓
+PostgreSQL
+
+따라서 Spring Boot에서는 PostgreSQL의 IP를 직접 지정하지 않고 다음과 같이 사용할 수 있다.
+
+jdbc:postgresql://ai-postgres:5432/ai_business
+
+#### 3. Docker Compose 기본 Network
+
+수동으로 Docker를 구성할 때는 다음 명령어로 Network를 직접 만들었다.
+
+docker network create ai-network
+
+Docker Compose를 사용하면 별도로 Network를 정의하지 않아도 프로젝트 전용 기본 Network를 자동으로 생성한다.
+
+현재 생성된 Network:
+
+ai-business-system_default
+
+기존:
+
+ai-network
+├─ ai-business
+└─ ai-postgres
+
+Docker Compose:
+
+ai-business-system_default
+├─ ai-business
+└─ ai-postgres
+
+두 Network는 서로 다른 Network이지만 역할은 동일하다.
+
+#### 4. Docker Compose
+
+Docker Compose는 여러 Container의 실행 설정을 하나의 YAML 파일로 관리한다.
+
+기존에는 직접 다음 작업을 수행했다.
+
+* docker build
+* docker run
+* 환경변수 지정
+* 포트 연결
+* Network 생성 및 연결
+* Container 시작/종료
+
+Docker Compose를 사용하면 이러한 설정을 `docker-compose.yml`에 선언하고 관리할 수 있다.
+
+docker compose up -d --build
+
+명령으로 Image Build와 여러 서비스를 함께 실행할 수 있다.
+
+#### 5. build: .
+
+ai-business는 Docker Hub에서 완성된 Image를 받아 사용하는 것이 아니라 프로젝트의 Dockerfile을 이용해 직접 Image를 만든다.
+
+따라서:
+
+build: .
+
+을 사용한다.
+
+이는 기존의:
+
+docker build -t ai-business-system .
+
+에서 마지막 `.`과 같은 Build Context 개념이다.
+
+#### 6. 환경변수를 이용한 Spring Boot 설정
+
+기존에는 application.yaml에 DB 정보를 직접 작성했다.
+
+현재는:
+
+url: ${DB_URL}
+username: ${DB_USERNAME}
+password: ${DB_PASSWORD}
+
+형태로 변경했다.
+
+실제 값은 Docker Compose가 Spring Boot Container에 환경변수로 전달한다.
+
+docker-compose.yml
+↓
+DB_URL
+DB_USERNAME
+DB_PASSWORD
+↓
+ai-business Container
+↓
+application.yaml
+↓
+Spring Boot DataSource
+
+이를 통해 실행 환경에 따라 DB 설정을 외부에서 주입할 수 있다.
+
+#### 7. depends_on
+
+ai-business는 ai-postgres에 의존하므로:
+
+depends_on:
+
+* ai-postgres
+
+를 설정했다.
+
+`depends_on`은 Container의 시작 순서를 제어할 수 있지만 PostgreSQL이 실제 DB 요청을 받을 준비가 완료될 때까지 기다리는 것을 보장하는 것은 아니다.
+
+추후 `healthcheck`를 이용해 DB 준비 상태까지 확인하도록 개선할 수 있다.
+
+#### 8. 로그를 이용한 장애 원인 확인
+
+Spring Boot Container가 실행되지 않았을 때:
+
+docker compose ps -a
+
+로 종료 상태를 확인하고:
+
+docker compose logs ai-business
+
+로 애플리케이션 로그를 확인했다.
+
+실제 오류:
+
+UnknownHostException: ai-postgres
+
+이를 통해 단순히 Spring Boot 문제라고 판단하지 않고 Docker Network/DNS 문제라는 것을 확인했다.
+
+`docker inspect`를 이용하면 Container의 Network, 환경변수, 포트 등 실제 Docker 설정을 상세하게 확인할 수 있다.
+
+### 현재 시스템 구조
+
+사용자
+│
+│ HTTP :9000
+▼
+Ubuntu
+│
+▼
+Docker Compose
+│
+└─ ai-business-system_default
+│
+├─ ai-business
+│    └─ Spring Boot
+│         │
+│         │ JDBC
+│         ▼
+│
+└─ ai-postgres
+└─ PostgreSQL
+└─ ai_business
+└─ customer
+
+Customer API:
+
+POST   /api/customers
+GET    /api/customers
+GET    /api/customers/{id}
+PUT    /api/customers/{id}
+DELETE /api/customers/{id}
+
+CRUD 전체 구현 완료.
+
+### 다음 할 일
+
+* Docker Compose Network 구성을 다시 검증
+* 수동 `docker network connect` 없이 Compose만으로 전체 환경이 재생성되는지 확인
+* PostgreSQL Healthcheck 적용
+* PostgreSQL 데이터 영속화를 위한 Volume 학습
+* Docker Compose 재시작 / 종료 / 재빌드 명령어 학습
+* Customer API 예외 처리
+
+    * 존재하지 않는 Customer 조회 시 404 처리
+    * 존재하지 않는 Customer 수정/삭제 처리
+* DTO / Service 계층 학습
+
+````
+
+그리고 **다음 시작점은 매우 중요합니다.**
+
+오늘 마지막에 `docker network connect`를 수동으로 실행해서 성공시켰기 때문에, 아직 Compose 구성이 **완전히 끝난 것은 아닙니다.**
+
+다음에는 가장 먼저:
+
+```text
+docker compose down
+        ↓
+docker compose up -d --build
+        ↓
+아무런 수동 network connect 없이
+        ↓
+GET /api/customers 성공?
+````
+
+을 검증해야 합니다.
+
+이게 성공해야 비로소 **“이 서버를 날리고 다시 만들어도 `docker-compose.yml`만 있으면 환경을 재현할 수 있다”**는 Compose의 핵심을 제대로 달성한 겁니다.
+
+오늘은 CRUD까지 완성하고 Docker Compose에 장애 추적까지 했으니 진도가 꽤 많이 나갔습니다.
+
+
+
+````markdown
+## Day 6 - Docker Compose 재구성 검증
+
+### 오늘 한 것
+
+- Docker Compose로 Spring Boot + PostgreSQL 전체 환경 재구성
+- `docker compose up -d --build` 실행
+- `docker-compose.yml`의 `build: .` 설정을 통해 Spring Boot 이미지 자동 빌드
+- PostgreSQL 컨테이너 자동 실행
+- Spring Boot 컨테이너 자동 실행
+- Docker Compose 기본 Network를 통한 컨테이너 간 통신 확인
+- 별도의 `docker network connect` 없이 Spring Boot ↔ PostgreSQL 연결 성공
+- `/api/customers` API 호출을 통해 전체 구성 정상 동작 확인
+- Windows IntelliJ에서도 환경변수를 이용한 로컬 개발 환경 정상 동작 확인
+
+### 주요 명령어
+
+```bash
+# docker-compose.yml이 있는 프로젝트 디렉터리로 이동
+cd ~/apps/ai-business-system
+
+# Compose 서비스 상태 확인
+docker compose ps
+
+# 이미지 빌드 + 컨테이너 생성 및 실행
+docker compose up -d --build
+
+# API 동작 확인
+curl http://localhost:9000/api/customers
+````
+
+### 오늘 이해한 개념
+
+#### 1. Docker Compose를 이용한 Build
+
+기존에는 Spring Boot 이미지를 직접 빌드했다.
+
+```bash
+docker build -t ai-business-system .
+```
+
+Docker Compose에서는 `docker-compose.yml`에 다음과 같이 정의했다.
+
+```yaml
+ai-business:
+  build: .
+```
+
+따라서:
+
+```bash
+docker compose up -d --build
+```
+
+를 실행하면 Docker Compose가 `docker-compose.yml`을 읽고 `build: .` 설정에 따라 현재 프로젝트의 Dockerfile을 이용하여 Spring Boot 이미지를 빌드한다.
+
+즉,
+
+docker-compose.yml
+↓
+build: .
+↓
+Dockerfile
+↓
+Spring Boot JAR Build
+↓
+Docker Image 생성
+↓
+Container 생성 및 실행
+
+의 순서로 동작한다.
+
+#### 2. Docker Compose의 역할
+
+Docker Compose는 단순히 이미지를 빌드하는 도구가 아니라 여러 컨테이너의 구성과 실행을 하나의 파일로 관리한다.
+
+현재 `docker-compose.yml`은 다음 내용을 관리한다.
+
+* Spring Boot 이미지 빌드
+* Spring Boot 컨테이너 실행
+* PostgreSQL 이미지 사용
+* PostgreSQL 컨테이너 실행
+* 포트 연결
+* 환경변수 전달
+* 서비스 의존관계
+* Docker Network 구성
+
+따라서 기존에 여러 `docker build`, `docker run`, `docker network` 명령으로 직접 구성했던 작업을 `docker-compose.yml` 하나로 관리할 수 있다.
+
+#### 3. Compose 기본 Network
+
+Docker Compose는 별도의 Network 설정을 작성하지 않아도 프로젝트용 기본 Network를 자동으로 생성한다.
+
+현재:
+
+ai-business-system_default
+├─ ai-business
+└─ ai-postgres
+
+두 서비스가 같은 Network에 연결되기 때문에 Spring Boot에서 다음 주소로 PostgreSQL에 접근할 수 있다.
+
+```text
+jdbc:postgresql://ai-postgres:5432/ai_business
+```
+
+이번 테스트에서는 별도의 `docker network connect` 명령 없이도 컨테이너 간 통신이 정상적으로 이루어지는 것을 확인했다.
+
+#### 4. 환경에 따른 설정값 주입
+
+`application.yaml`에서는 DB 접속정보를 직접 가지고 있지 않고 환경변수를 사용한다.
+
+```yaml
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+```
+
+Windows IntelliJ에서 실행할 때는 IntelliJ Run Configuration에서 환경변수를 전달한다.
+
+Docker 환경에서는 `docker-compose.yml`에서 환경변수를 전달한다.
+
+따라서 동일한 Spring Boot 소스를 수정하지 않고 서로 다른 실행 환경에서 사용할 수 있다.
+
+Windows IntelliJ
+↓
+IntelliJ 환경변수
+↓
+application.yaml
+↓
+Ubuntu PostgreSQL
+
+Docker Compose
+↓
+Compose 환경변수
+↓
+application.yaml
+↓
+ai-postgres
+
+### 오늘 최종 확인
+
+```bash
+docker compose ps
+```
+
+Spring Boot와 PostgreSQL 모두 `Up` 상태 확인.
+
+```bash
+curl http://localhost:9000/api/customers
+```
+
+응답:
+
+```json
+[]
+```
+
+HTTP 요청 → Spring Boot → PostgreSQL 조회 → JSON 응답까지 정상 동작 확인.
+
+### 다음 할 일
+
+* Docker Compose 명령어 추가 학습
+* PostgreSQL Volume을 이용한 데이터 영속화
+* PostgreSQL Healthcheck 적용
+* 이후 Spring Boot 애플리케이션 구조 학습
+
+````
+
+그리고 오늘 잡으신 **“docker-compose 파일로 빌드한 거구나”**에서 한 가지만 정확하게 기억하시면 됩니다.
+
+`docker-compose.yml` 자체가 빌드하는 것은 아니고,
+
+> **Docker Compose가 `docker-compose.yml`을 읽고 → `build: .`을 발견하고 → Dockerfile을 사용해서 이미지를 빌드한다.**
+
+입니다.
+
+이 관계만 머릿속에 넣어두시면 됩니다.
+
+```text
+docker compose 명령
+       ↓
+docker-compose.yml
+       ↓
+    build: .
+       ↓
+   Dockerfile
+       ↓
+     Image
+       ↓
+   Container
+````
+
+오늘은 이 정도 정리하고 끝내셔도 딱 좋습니다.
